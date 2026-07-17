@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Build artifacts
+*.spec
+*.exe
+*.log
+
+# Editors
+.vscode/
+.idea/
+
+# Distribution
+SteamDC_/
+
+# Test & coverage
+.coverage
+.pytest_cache/
+.ruff_cache/
