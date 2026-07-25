@@ -11,6 +11,7 @@ No more guessing 2-hour timers for `shutdown /s /f /t`. This tool monitors Steam
 - **Staging aware** — waits for post-download staging/installing to finish too
 - **Stall detection** — if downloads stall out, waits a configurable period before shutting down
 - **Cross-platform** — Windows, Linux, macOS
+- **Desktop GUI** — graphical interface built with `customtkinter` (also available as a prebuilt `.exe`)
 - **Rich UI** — beautiful terminal output with `rich` (falls back to plain mode)
 - **Dry-run mode** — see what would happen without actually shutting down
 
@@ -43,9 +44,22 @@ steamdc --interval 15 --stall-timeout 300
 # Plain output (no rich progress bars)
 steamdc --no-rich
 
+# GUI mode (desktop app)
+steamdc --gui
+
 # Help
 steamdc --help
 ```
+
+### Pre-built GUI executable
+
+A ready-to-run Windows `.exe` (no Python required) is included in the `SteamDC_/` folder:
+
+```
+SteamDC_/SteamDC.exe
+```
+
+Just download and run — it launches the desktop GUI automatically.
 
 ## How it works
 

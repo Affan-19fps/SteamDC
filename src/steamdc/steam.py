@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import logging
 import platform
 import re
 from pathlib import Path
 from typing import Any
 
 from .vdf import load_acf
+
+logger = logging.getLogger(__name__)
+
+_STATE_FLAG_DOWNLOADING = 2
+_STATE_FLAG_INSTALLED = 4
 
 
 class ManifestCache:
@@ -17,6 +23,7 @@ class ManifestCache:
         try:
             mtime_ns = path.stat().st_mtime_ns
         except OSError:
+            logger.warning("Failed to stat manifest %s", path)
             return None
         entry = self._file_cache.get(path)
         if entry is not None and entry[0] == mtime_ns:
@@ -27,6 +34,7 @@ class ManifestCache:
         try:
             mtime_ns = path.stat().st_mtime_ns
         except OSError:
+            logger.warning("Failed to stat manifest for cache update %s", path)
             return
         self._file_cache[path] = (mtime_ns, data)
 
@@ -34,6 +42,7 @@ class ManifestCache:
         try:
             mtime = folder.stat().st_mtime_ns
         except OSError:
+            logger.warning("Failed to stat folder for manifest list cache %s", folder)
             return None
         entry = self._list_cache.get(folder)
         if entry is not None and entry[0] == mtime:
@@ -44,6 +53,7 @@ class ManifestCache:
         try:
             mtime = folder.stat().st_mtime_ns
         except OSError:
+            logger.warning("Failed to stat folder for manifest list cache update %s", folder)
             return
         self._list_cache[folder] = (mtime, manifests)
 
@@ -54,6 +64,7 @@ class ManifestCache:
 
 def find_steam_root() -> Path | None:
     system = platform.system()
+    logger.debug("Detecting Steam root on %s", system)
     if system == "Windows":
         import winreg
 
@@ -63,15 +74,18 @@ def find_steam_root() -> Path | None:
                 r"SOFTWARE\WOW6432Node\Valve\Steam",
             ) as key:
                 path = winreg.QueryValueEx(key, "InstallPath")[0]
-                return Path(path)
+                root = Path(path)
+                logger.info("Steam root found via registry: %s", root)
+                return root
         except (OSError, FileNotFoundError):
-            pass
+            logger.info("Registry lookup failed, checking default paths")
         candidates = [
             Path("C:/Program Files (x86)/Steam"),
             Path("C:/Program Files/Steam"),
         ]
         for p in candidates:
             if p.exists():
+                logger.info("Steam root found at default path: %s", p)
                 return p
     elif system == "Linux":
         candidates = [
@@ -81,6 +95,7 @@ def find_steam_root() -> Path | None:
         ]
         for p in candidates:
             if p.exists():
+                logger.info("Steam root found: %s", p)
                 return p
     elif system == "Darwin":
         candidates = [
@@ -88,7 +103,9 @@ def find_steam_root() -> Path | None:
         ]
         for p in candidates:
             if p.exists():
+                logger.info("Steam root found: %s", p)
                 return p
+    logger.warning("Steam installation not found on %s", system)
     return None
 
 
@@ -112,8 +129,9 @@ def find_library_folders(steam_root: Path) -> list[Path]:
                     if lib_path.exists() and lib_path not in folders:
                         folders.append(lib_path)
         except Exception:
-            pass
+            logger.warning("Failed to parse libraryfolders.vdf", exc_info=True)
 
+    logger.debug("Found %d library folder(s)", len(folders))
     return folders
 
 
@@ -130,6 +148,7 @@ def read_manifest(
         cached = cache.get_manifest(acf_path)
         if cached is not None:
             return cached
+    logger.debug("Reading manifest: %s", acf_path)
     data = load_acf(acf_path)
     if cache is not None:
         cache.set_manifest(acf_path, data)
@@ -149,6 +168,7 @@ def find_all_manifests(
                 continue
         pattern = "appmanifest_*.acf"
         found = sorted(folder.glob(pattern))
+        logger.debug("Found %d manifest(s) in %s", len(found), folder)
         manifests.extend(found)
         if cache is not None:
             cache.set_manifest_list(folder, found)
@@ -177,11 +197,11 @@ class AppInfo:
 
     @property
     def is_installed(self) -> bool:
-        return bool(self.state_flags & 4)
+        return bool(self.state_flags & _STATE_FLAG_INSTALLED)
 
     @property
     def is_downloading(self) -> bool:
-        return bool(self.state_flags & 2)
+        return bool(self.state_flags & _STATE_FLAG_DOWNLOADING)
 
     @property
     def download_pct(self) -> float:
@@ -205,4 +225,5 @@ def _safe_int(data: dict, key: str, default: int = 0) -> int:
         v = data.get(key, default)
         return int(v) if v is not None else default
     except (ValueError, TypeError):
+        logger.debug("Failed to parse int for key '%s', using default %d", key, default)
         return default

@@ -1,0 +1,1 @@
+so basically this folder contains the .exe file, just double click the file below to run it.

@@ -400,3 +400,97 @@ class TestMonitorLoop:
                 )
 
         on_shutdown.assert_called_once()
+
+    def test_target_app_ids_filters_downloads(self):
+        """When target_app_ids is set, only matching downloads are tracked."""
+        on_shutdown = MagicMock()
+
+        states = [
+            MonitorState(
+                active_downloads=[
+                    self.make_progress("730", "CS2", 1000, 500),
+                    self.make_progress("440", "TF2", 4000, 1000),
+                ],
+            ),
+            MonitorState(),
+            MonitorState(),
+            MonitorState(),
+        ]
+
+        with patch("steamdc.monitor.check_downloads", side_effect=states):
+            with patch("steamdc.monitor.time.sleep"):
+                monitor_loop(
+                    library_folders=[Path("/fake")],
+                    interval=1,
+                    stall_timeout=3,
+                    on_progress=None,
+                    on_shutdown=on_shutdown,
+                    dry_run=False,
+                    target_app_ids={"730"},
+                )
+
+        on_shutdown.assert_called_once()
+
+    def test_on_progress_called_throughout_loop(self):
+        """on_progress is called each iteration even before completion."""
+        captured = []
+
+        def capture(state: MonitorState) -> None:
+            captured.append(1)
+
+        states = [
+            MonitorState(active_downloads=[self.make_progress("730", "CS2", 1000, 500)]),
+            MonitorState(),
+            MonitorState(),
+            MonitorState(),
+        ]
+
+        with patch("steamdc.monitor.check_downloads", side_effect=states):
+            with patch("steamdc.monitor.time.sleep"):
+                monitor_loop(
+                    library_folders=[Path("/fake")],
+                    interval=1,
+                    stall_timeout=3,
+                    on_progress=capture,
+                    on_shutdown=MagicMock(),
+                    dry_run=True,
+                )
+
+        assert len(captured) == 4
+
+    def test_stalling_triggers_log_message(self):
+        """When downloads disappear then staging reappears without progress, stall fires."""
+        captured = []
+
+        def capture(state: MonitorState) -> None:
+            captured.append(state)
+
+        states = [
+            MonitorState(active_downloads=[self.make_progress("730", "CS2", 1000, 500)]),
+            MonitorState(),
+            MonitorState(),
+            MonitorState(staging_apps=["730"]),
+        ]
+
+        state_iter = iter(states)
+
+        def check_side_effect(_lib, **kwargs):
+            try:
+                return next(state_iter)
+            except StopIteration:
+                raise RuntimeError("_loop_timeout")
+
+        with patch("steamdc.monitor.check_downloads", check_side_effect):
+            with self._with_timeout(states):
+                with pytest.raises(RuntimeError, match="_loop_timeout"):
+                    monitor_loop(
+                        library_folders=[Path("/fake")],
+                        interval=1,
+                        stall_timeout=10,
+                        on_progress=capture,
+                        on_shutdown=MagicMock(),
+                        dry_run=True,
+                    )
+
+        stalled_states = [s for s in captured if s.stall_seconds >= 2]
+        assert len(stalled_states) >= 1

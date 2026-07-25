@@ -11,15 +11,14 @@ env/
 
 # Build artifacts
 *.spec
+!SteamDC.spec
 *.exe
+!SteamDC_/SteamDC.exe
 *.log
 
 # Editors
 .vscode/
 .idea/
-
-# Distribution
-SteamDC_/
 
 # Test & coverage
 .coverage

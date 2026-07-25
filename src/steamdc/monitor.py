@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,6 +8,10 @@ from typing import Callable
 
 from . import steam
 from .steam import ManifestCache
+
+logger = logging.getLogger(__name__)
+
+_BYTES_PER_MB = 1024 * 1024
 
 
 @dataclass
@@ -19,11 +24,11 @@ class DownloadProgress:
 
     @property
     def mb_total(self) -> float:
-        return self.total_bytes / (1024 * 1024)
+        return self.total_bytes / _BYTES_PER_MB
 
     @property
     def mb_downloaded(self) -> float:
-        return self.downloaded_bytes / (1024 * 1024)
+        return self.downloaded_bytes / _BYTES_PER_MB
 
 
 @dataclass
@@ -48,7 +53,7 @@ def _has_staging_activity(dl_folder: Path) -> list[str]:
         for entry in dl_folder.iterdir():
             items.append(entry.name)
     except PermissionError:
-        pass
+        logger.warning("Permission denied accessing staging folder %s", dl_folder)
     return items
 
 
@@ -74,8 +79,8 @@ def check_downloads(
                 state.active_downloads.append(dp)
                 state.overall_bytes += info.bytes_to_download
                 state.overall_downloaded += info.bytes_downloaded
-        except (OSError, ValueError, KeyError):
-            continue
+        except (OSError, ValueError, KeyError) as e:
+            logger.warning("Failed to parse manifest %s: %s", mf, e)
 
     dl_folders = steam.get_downloading_folders(library_folders)
     for dlf in dl_folders:
@@ -140,11 +145,19 @@ def monitor_loop(
         if has_content:
             ever_saw_content = True
             if made_progress or stale_app_ids:
+                if made_progress:
+                    logger.debug(
+                        "Download progress detected for apps: %s",
+                        [a for a, b in current_app_bytes.items()
+                         if previous_app_bytes.get(a) is not None and b > previous_app_bytes[a]],
+                    )
                 completion_counter = 0
         elif ever_saw_content:
             completion_counter += interval
+            logger.debug("No content, completion counter: %ds", completion_counter)
 
         if completion_counter >= stall_timeout:
+            logger.info("All downloads complete (stall timeout of %ds reached)", stall_timeout)
             state.all_done = True
             if on_progress:
                 on_progress(state)
@@ -152,6 +165,8 @@ def monitor_loop(
 
         if state.active_downloads or state.staging_apps:
             state.stall_seconds = completion_counter if not made_progress else 0
+            if state.stall_seconds > 0 and state.stall_seconds >= interval * 2:
+                logger.info("Download stalled (%ds without progress)", state.stall_seconds)
 
         if on_progress:
             on_progress(state)

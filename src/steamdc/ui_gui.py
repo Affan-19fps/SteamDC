@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import urllib.request
@@ -11,6 +12,8 @@ import customtkinter as ctk
 from . import monitor, shutdown, steam
 from .wakelock import prevent_sleep
 
+logger = logging.getLogger(__name__)
+
 IMG_CACHE_DIR = Path.home() / ".cache" / "steamdc" / "headers"
 IMG_SIZE = (184, 69)
 STEAM_IMG_URL = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{}/header.jpg"
@@ -20,6 +23,7 @@ def _try_load_image(app_id: str) -> ctk.CTkImage | None:
     try:
         from PIL import Image
     except ImportError:
+        logger.debug("PIL not available, skipping header image for app %s", app_id)
         return None
 
     IMG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -29,12 +33,14 @@ def _try_load_image(app_id: str) -> ctk.CTkImage | None:
         try:
             urllib.request.urlretrieve(STEAM_IMG_URL.format(app_id), path)
         except Exception:
+            logger.warning("Failed to download header image for app %s", app_id)
             return None
 
     try:
         pil = Image.open(path)
         return ctk.CTkImage(pil, size=IMG_SIZE)
     except Exception:
+        logger.warning("Failed to load header image for app %s", app_id)
         return None
 
 
@@ -90,13 +96,13 @@ class DCSApp(ctk.CTk):
         self._selection_frame = SelectionFrame(self, self.library_folders, self._on_start)
         self._selection_frame.pack(fill="both", expand=True)
 
-    def _on_start(self, target_app_ids: set[str], no_sleep: bool, no_sleep_lid: bool):
+    def _on_start(self, target_app_ids: set[str], no_sleep: bool):
         if self._selection_frame is not None:
             self._selection_frame.destroy()
             self._selection_frame = None
         self._monitoring_frame = MonitoringFrame(
             self, self.library_folders, target_app_ids, self._show_selection,
-            no_sleep=no_sleep, no_sleep_lid=no_sleep_lid,
+            no_sleep=no_sleep,
         )
         self._monitoring_frame.pack(fill="both", expand=True)
 
@@ -110,14 +116,13 @@ class SelectionFrame(ctk.CTkFrame):
     def __init__(
         self, master: ctk.CTk,
         library_folders: list[Path],
-        on_start: Callable[[set[str], bool, bool], None],
+        on_start: Callable[[set[str], bool], None],
     ):
         super().__init__(master)
         self.library_folders = library_folders
         self.on_start = on_start
         self.check_vars: dict[str, ctk.BooleanVar] = {}
         self.no_sleep_var = ctk.BooleanVar(value=True)
-        self.no_sleep_lid_var = ctk.BooleanVar(value=False)
         self._build()
 
     def _build(self):
@@ -146,12 +151,6 @@ class SelectionFrame(ctk.CTkFrame):
             sleep_frame, text="Prevent system sleep",
             variable=self.no_sleep_var,
         ).pack(side="left", padx=8)
-
-        self.lid_cb = ctk.CTkCheckBox(
-            sleep_frame, text="Prevent lid-close sleep",
-            variable=self.no_sleep_lid_var,
-        )
-        self.lid_cb.pack(side="left", padx=8)
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=(0, 12))
@@ -206,7 +205,7 @@ class SelectionFrame(ctk.CTkFrame):
         if not selected:
             self.status_label.configure(text="Select at least one game.", text_color="red")
             return
-        self.on_start(selected, self.no_sleep_var.get(), self.no_sleep_lid_var.get())
+        self.on_start(selected, self.no_sleep_var.get())
 
 
 class MonitoringFrame(ctk.CTkFrame):
@@ -220,7 +219,6 @@ class MonitoringFrame(ctk.CTkFrame):
         shutdown_delay: int = 5,
         dry_run: bool = False,
         no_sleep: bool = True,
-        no_sleep_lid: bool = False,
     ):
         super().__init__(master)
         self.library_folders = library_folders
@@ -231,7 +229,6 @@ class MonitoringFrame(ctk.CTkFrame):
         self.shutdown_delay = shutdown_delay
         self.dry_run = dry_run
         self.no_sleep = no_sleep
-        self.no_sleep_lid = no_sleep_lid
         self._cancelled = False
         self._latest_state: monitor.MonitorState | None = None
         self._countdown_val: int | None = None
@@ -331,16 +328,19 @@ class MonitoringFrame(ctk.CTkFrame):
         def on_shutdown() -> None:
             if self.dry_run:
                 return
+            logger.info("Downloads complete, shutdown countdown: %ds", self.shutdown_delay)
             for i in range(self.shutdown_delay, 0, -1):
                 if self._cancelled:
+                    logger.info("Shutdown cancelled during countdown")
                     return
+                logger.debug("Shutdown countdown (GUI): %ds", i)
                 self._countdown_val = i
                 time.sleep(1)
             if not self._cancelled:
                 shutdown.shutdown_system()
 
         if self.no_sleep:
-            ctx = prevent_sleep(lid_close=self.no_sleep_lid)
+            ctx = prevent_sleep()
             self._wake_lock = ctx.__enter__()
         else:
             self._wake_lock = None
@@ -381,6 +381,7 @@ class MonitoringFrame(ctk.CTkFrame):
             return
 
     def _cancel(self):
+        logger.info("GUI monitoring cancelled by user")
         self._cancelled = True
         if self._anim_id:
             self.after_cancel(self._anim_id)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import signal
 import sys
 import time
@@ -7,6 +8,8 @@ from datetime import datetime
 
 from . import monitor, shutdown
 from .wakelock import prevent_sleep
+
+logger = logging.getLogger(__name__)
 
 
 class _NopContext:
@@ -24,7 +27,6 @@ def run_rich_monitor(
     shutdown_delay: int,
     dry_run: bool,
     no_sleep: bool = True,
-    no_sleep_lid: bool = False,
 ) -> None:
     from rich.console import Console
     from rich.live import Live
@@ -34,7 +36,6 @@ def run_rich_monitor(
     from rich.text import Text
 
     console = Console()
-    shutdown_triggered = [False]
 
     def make_display(state: monitor.MonitorState) -> Panel:
         now = datetime.now().strftime("%H:%M:%S")
@@ -45,8 +46,8 @@ def run_rich_monitor(
 
         dl_count = len(state.active_downloads)
         staging_count = len(state.staging_apps)
-        total_mb = state.overall_bytes / (1024 * 1024)
-        done_mb = state.overall_downloaded / (1024 * 1024)
+        total_mb = state.overall_bytes / monitor._BYTES_PER_MB
+        done_mb = state.overall_downloaded / monitor._BYTES_PER_MB
         overall_pct = (done_mb / total_mb * 100) if total_mb > 0 else 0
 
         grid = Table.grid(padding=(0, 1))
@@ -74,8 +75,8 @@ def run_rich_monitor(
             grid.add_row("[yellow]Post-download staging in progress...[/]")
 
         for d in state.active_downloads:
-            dmb = d.downloaded_bytes / (1024 * 1024)
-            tmb = d.total_bytes / (1024 * 1024)
+            dmb = d.downloaded_bytes / monitor._BYTES_PER_MB
+            tmb = d.total_bytes / monitor._BYTES_PER_MB
             sub = Table.grid(padding=(0, 1))
             sub.add_column(justify="left")
             sub.add_row(
@@ -105,13 +106,14 @@ def run_rich_monitor(
 
     state_ref = [None]
 
-    wl_ctx = prevent_sleep(lid_close=no_sleep_lid) if no_sleep else _NopContext()
+    wl_ctx = prevent_sleep() if no_sleep else _NopContext()
     with wl_ctx as wl_msgs:
         for m in wl_msgs:
             console.print(f"[dim]{m}[/]")
 
         with Live(console=console, screen=False, refresh_per_second=2) as live:
             def signal_handler(sig, frame) -> None:
+                logger.info("Monitoring cancelled by user (SIGINT)")
                 live.stop()
                 console.print("\n[bold yellow]Monitoring cancelled by user.[/]")
                 sys.exit(0)
@@ -130,12 +132,15 @@ def run_rich_monitor(
 
             def on_shutdown() -> None:
                 if dry_run:
+                    logger.info("Dry run — shutdown skipped")
                     console.print("[blue]Dry-run — would have shut down.[/]")
                 else:
+                    logger.info("Downloads complete, shutdown countdown: %ds", shutdown_delay)
                     console.print("[bold green]Downloads complete![/]")
                     console.print(f"[yellow]Shutting down in {shutdown_delay} seconds... (Ctrl+C to cancel)[/]")
                     try:
                         for i in range(shutdown_delay, 0, -1):
+                            logger.debug("Shutdown countdown: %ds", i)
                             live.update(
                                 Panel(
                                     f"[bold yellow]Shutting down in {i} seconds...[/]",
@@ -146,6 +151,7 @@ def run_rich_monitor(
                         live.stop()
                         shutdown.shutdown_system()
                     except KeyboardInterrupt:
+                        logger.info("Shutdown cancelled by user in Rich UI")
                         live.stop()
                         console.print("\n[bold yellow]Shutdown cancelled by user.[/]")
                         sys.exit(0)
