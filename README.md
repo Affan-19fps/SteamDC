@@ -6,7 +6,6 @@ No more guessing 2-hour timers for `shutdown /s /f /t`. This tool monitors Steam
 
 ## Features
 
-- **Real-time progress** — per-game and overall progress bars
 - **Smart detection** — reads Steam's `.acf` manifest files directly, no injection or API hacks
 - **Staging aware** — waits for post-download staging/installing to finish too
 - **Stall detection** — if downloads stall out, waits a configurable period before shutting down
