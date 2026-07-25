@@ -31,7 +31,7 @@ pip install -e .
 ## Usage
 
 ```bash
-# Default — poll every 30s, shutdown 10s after downloads complete
+# Default — poll every 5s, shutdown 5s after 2 min of inactivity (stall timeout)
 steamdc
 
 # Dry-run — monitor without shutting down
@@ -65,6 +65,8 @@ Just download and run — it launches the desktop GUI automatically.
 Steam stores download state in `.acf` manifest files inside each library folder's `steamapps/` directory. `steamdc` parses these files to read `BytesDownloaded` / `BytesToDownload` and monitors the `steamapps/downloading/` directories for post-download staging activity. Once all bytes are accounted for and no new activity is detected for the stall timeout window, it triggers a system shutdown.
 
 No reverse engineering, no Steam client API, no injection. Just file watching.
+
+> **Note:** Once all downloads appear complete, SteamDC waits **120 seconds** (`--stall-timeout`) with no new activity before triggering shutdown — this prevents premature shutdown if Steam is still staging or downloading small updates. After that, it waits another **5 seconds** (`--shutdown-delay`) then shuts down. Total real-world delay from "done" to shutdown is ~2 minutes by default.
 
 ## License
 
