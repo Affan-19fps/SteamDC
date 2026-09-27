@@ -68,6 +68,18 @@ No reverse engineering, no Steam client API, no injection. Just file watching.
 
 > **Note:** Once all downloads appear complete, SteamDC waits **120 seconds** (`--stall-timeout`) with no new activity before triggering shutdown — this prevents premature shutdown if Steam is still staging or downloading small updates. After that, it waits another **5 seconds** (`--shutdown-delay`) then shuts down. Total real-world delay from "done" to shutdown is ~2 minutes by default.
 
+## Donations
+
+If you find this tool useful and want to support development, consider sending a gift card/code to:
+
+📧 lowkeyaffan@gmail.com
+
+Your support helps with:
+- Cross-platform support (Windows, Linux, macOS)
+- Support for other game launchers (Epic Games, GOG, etc.)
+
+Your support is appreciated!
+
 ## License
 
 MIT
